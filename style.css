@@ -55,6 +55,28 @@ body::after {
     }
 }
 
+/* Watermark */
+.watermark {
+    position: fixed;
+    top: 20px;
+    font-size: 18px;
+    font-weight: bold;
+    color: rgba(220, 53, 69, 0.3);
+    z-index: 1000;
+    pointer-events: none;
+    font-family: 'Arial', sans-serif;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+}
+
+.watermark-left {
+    left: 20px;
+}
+
+.watermark-right {
+    right: 20px;
+}
+
 /* Container with backdrop */
 .container-fluid {
     position: relative;
