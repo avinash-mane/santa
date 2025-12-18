@@ -201,9 +201,6 @@ function parseExcelData(excelData) {
 
     // Show success message
     showAlert('uploadStatus', 'success', `Successfully uploaded ${participants.length} participants!`);
-    document.getElementById('uploadedNames').innerHTML = `
-        <strong>Uploaded Names:</strong> ${participants.map(p => p.name).join(', ')}
-    `;
 
     // Reset state
     currentSpinner = null;
@@ -759,7 +756,6 @@ function resetAllData() {
 
     // Hide all alerts and results
     document.getElementById('uploadStatus').style.display = 'none';
-    document.getElementById('uploadedNames').innerHTML = '';
     document.getElementById('selectedAdmin').style.display = 'none';
     document.getElementById('spinResult').style.display = 'none';
     document.getElementById('spinResultActions').style.display = 'none';
