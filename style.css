@@ -241,7 +241,6 @@ h1::after {
 /* Wheel Name Items */
 .wheel-name {
     position: absolute;
-    width: 50%;
     height: 2px;
     left: 50%;
     top: 50%;
