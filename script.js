@@ -16,6 +16,8 @@ let availableReceivers = [];
 let isSpinning = false;
 let pendingPair = null; // Store pair before saving
 
+let currentRotation = 0;
+
 // ============================================
 // INITIALIZATION
 // ============================================
@@ -37,7 +39,9 @@ function loadDataFromStorage() {
     // Load participants
     const storedParticipants = localStorage.getItem(STORAGE_KEYS.PARTICIPANTS);
     if (storedParticipants) {
-        allParticipants = JSON.parse(storedParticipants);
+        const parsed = JSON.parse(storedParticipants);
+        // Migration: convert strings to objects if necessary
+        allParticipants = parsed.map(p => typeof p === 'string' ? { name: p, wishList: '' } : p);
     }
 
     // Load pairs
@@ -155,37 +159,50 @@ function handleCSVUpload(event) {
 }
 
 /**
- * Parse Excel data (single column)
+ * Parse Excel data (two columns: Name and Wish List)
  */
 function parseExcelData(excelData) {
-    const names = [];
+    const participants = [];
     const seen = new Set();
 
-    // Extract names from first column of Excel data
-    excelData.forEach(row => {
+    // Extract names and wish lists from Excel data
+    // Assuming row 0 is header or we start from row 0
+    // Let's check if the first row looks like a header
+    let startIndex = 0;
+    if (excelData.length > 0 && Array.isArray(excelData[0])) {
+        const firstCol = String(excelData[0][0]).toLowerCase();
+        if (firstCol.includes('name') || firstCol.includes('participant')) {
+            startIndex = 1;
+        }
+    }
+
+    for (let i = startIndex; i < excelData.length; i++) {
+        const row = excelData[i];
         if (Array.isArray(row) && row.length > 0) {
-            const name = String(row[0]).trim();
-            if (name && name !== '' && !seen.has(name.toLowerCase())) {
-                names.push(name);
+            const name = String(row[0] || '').trim();
+            const wishList = String(row[1] || '').trim();
+            
+            if (name && !seen.has(name.toLowerCase())) {
+                participants.push({ name, wishList });
                 seen.add(name.toLowerCase());
             }
         }
-    });
+    }
 
-    // Check for minimum 2 names
-    if (names.length < 2) {
+    // Check for minimum 2 participants
+    if (participants.length < 2) {
         showAlert('uploadStatus', 'danger', 'Excel file must contain at least 2 unique names in the first column.');
         return;
     }
 
     // Store participants
-    allParticipants = names;
+    allParticipants = participants;
     saveParticipants();
 
     // Show success message
-    showAlert('uploadStatus', 'success', `Successfully uploaded ${names.length} participants!`);
+    showAlert('uploadStatus', 'success', `Successfully uploaded ${participants.length} participants!`);
     document.getElementById('uploadedNames').innerHTML = `
-        <strong>Uploaded Names:</strong> ${names.join(', ')}
+        <strong>Uploaded Names:</strong> ${participants.map(p => p.name).join(', ')}
     `;
 
     // Reset state
@@ -204,7 +221,7 @@ function parseExcelData(excelData) {
  */
 function getAvailableSpinners() {
     const spunGivers = secretSantaPairs.map(pair => pair.giver);
-    return allParticipants.filter(name => !spunGivers.includes(name));
+    return allParticipants.filter(p => !spunGivers.includes(p.name));
 }
 
 /**
@@ -213,8 +230,8 @@ function getAvailableSpinners() {
 function filterAdminDropdown() {
     const searchTerm = document.getElementById('adminSearch').value.toLowerCase();
     const availableSpinners = getAvailableSpinners();
-    const filtered = availableSpinners.filter(name => 
-        name.toLowerCase().includes(searchTerm)
+    const filtered = availableSpinners.filter(p => 
+        p.name.toLowerCase().includes(searchTerm)
     );
     populateAdminDropdown(filtered);
 }
@@ -222,11 +239,11 @@ function filterAdminDropdown() {
 /**
  * Populate admin dropdown
  */
-function populateAdminDropdown(names) {
+function populateAdminDropdown(participants) {
     const adminSelector = document.getElementById('adminSelector');
     adminSelector.innerHTML = '';
 
-    if (names.length === 0) {
+    if (participants.length === 0) {
         const option = document.createElement('option');
         option.textContent = 'No available spinners';
         option.disabled = true;
@@ -234,10 +251,10 @@ function populateAdminDropdown(names) {
         return;
     }
 
-    names.forEach(name => {
+    participants.forEach(p => {
         const option = document.createElement('option');
-        option.value = name;
-        option.textContent = name;
+        option.value = p.name;
+        option.textContent = p.name;
         adminSelector.appendChild(option);
     });
 }
@@ -263,8 +280,8 @@ function handleAdminSelection(event) {
  */
 function updateAvailableReceivers() {
     const assignedReceivers = secretSantaPairs.map(pair => pair.receiver);
-    availableReceivers = allParticipants.filter(name => 
-        !assignedReceivers.includes(name) && name !== currentSpinner
+    availableReceivers = allParticipants.filter(p => 
+        !assignedReceivers.includes(p.name) && p.name !== currentSpinner
     );
 }
 
@@ -278,7 +295,8 @@ function updateAvailableReceivers() {
 function createDartWheel() {
     const dartWheel = document.getElementById('dartWheel');
     dartWheel.innerHTML = '';
-    dartWheel.style.transform = 'rotate(0deg)';
+    // Don't reset rotation here to avoid jump
+    // dartWheel.style.transform = 'rotate(0deg)'; 
 
     // Hide center display when creating new wheel
     const centerDisplay = document.getElementById('centerDisplay');
@@ -298,11 +316,11 @@ function createDartWheel() {
     const containerSize = Math.min(container.offsetWidth, container.offsetHeight) || 500;
     const radius = (containerSize / 2) - 20; // 20px padding from edge
 
-    availableReceivers.forEach((name, index) => {
+    availableReceivers.forEach((participant, index) => {
         const nameElement = document.createElement('div');
         nameElement.className = 'wheel-name';
-        nameElement.textContent = name;
-        nameElement.dataset.name = name;
+        nameElement.textContent = participant.name;
+        nameElement.dataset.name = participant.name;
         
         const angle = index * angleStep;
         nameElement.style.transform = `rotate(${angle}deg) translateY(-${radius}px)`;
@@ -346,17 +364,17 @@ function handleSpin() {
     // Random rotation (multiple full rotations + random angle)
     const baseRotations = 5 + Math.random() * 5; // 5-10 full rotations
     const randomAngle = Math.random() * 360;
-    const totalRotation = baseRotations * 360 + randomAngle;
+    currentRotation += baseRotations * 360 + randomAngle;
 
     const dartWheel = document.getElementById('dartWheel');
-    dartWheel.style.transform = `rotate(${totalRotation}deg)`;
+    dartWheel.style.transform = `rotate(${currentRotation}deg)`;
 
-    // After 5 seconds, determine winner
+    // After 3 seconds, determine winner
     setTimeout(() => {
-        determineWinner(totalRotation);
+        determineWinner(currentRotation);
         isSpinning = false;
         updateButtons();
-    }, 5000);
+    }, 3000);
 }
 
 /**
@@ -384,7 +402,8 @@ function determineWinner(finalRotation) {
     let targetIndex = Math.round(normalizedRotation / angleStep) % availableReceivers.length;
     if (targetIndex < 0) targetIndex = (targetIndex + availableReceivers.length) % availableReceivers.length;
 
-    const winner = availableReceivers[targetIndex];
+    const winnerParticipant = availableReceivers[targetIndex];
+    const winner = winnerParticipant.name;
 
     // Highlight winner
     const winnerElement = document.querySelector(`.wheel-name[data-name="${winner}"]`);
@@ -398,11 +417,12 @@ function determineWinner(finalRotation) {
     // Store pending pair (not saved yet)
     pendingPair = {
         giver: currentSpinner,
-        receiver: winner
+        receiver: winner,
+        wishList: winnerParticipant.wishList
     };
 
     // Show result with action buttons
-    showSpinResult(currentSpinner, winner);
+    showSpinResult(currentSpinner, winnerParticipant);
 }
 
 /**
@@ -421,14 +441,29 @@ function showCenterDisplay(receiverName) {
 /**
  * Show spin result with Save/Spin Again options
  */
-function showSpinResult(giver, receiver) {
+function showSpinResult(giver, receiverParticipant) {
     const spinResult = document.getElementById('spinResult');
     const spinResultMessage = document.getElementById('spinResultMessage');
     const spinResultActions = document.getElementById('spinResultActions');
+    const receiver = receiverParticipant.name;
+    const wishList = receiverParticipant.wishList;
+
+    let wishListHtml = '';
+    if (wishList) {
+        wishListHtml = `
+            <div class="wishlist-container mt-3 p-3 border rounded bg-light">
+                <h5 class="wishlist-title"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-gift" viewBox="0 0 16 16" style="margin-right: 5px;">
+                    <path d="M3 2.5a.5.5 0 0 1 .5-.5L4 2.5V2h1v.5L5.5 2a.5.5 0 0 1 .5.5v1H3v-1zM2 3.5a1.5 1.5 0 0 1 1.5-1.5h9A1.5 1.5 0 0 1 14 3.5V5H2V3.5zM1 6v8.5A1.5 1.5 0 0 0 2.5 16h11a1.5 1.5 0 0 0 1.5-1.5V6H1zM2 7h12v7.5a.5.5 0 0 1-.5.5h-11a.5.5 0 0 1-.5-.5V7z"/>
+                </svg>${receiver}'s Wish List:</h5>
+                <p class="wishlist-content mb-0">${wishList}</p>
+            </div>
+        `;
+    }
 
     spinResultMessage.innerHTML = 
         `<strong>${giver}</strong> will give a gift to <strong>${receiver}</strong>!<br>
-        <small class="text-muted">Choose to save this pair or spin again</small>`;
+        ${wishListHtml}
+        <small class="text-muted mt-2 d-block">Choose to save this pair or spin again</small>`;
 
     spinResult.style.display = 'block';
     spinResultActions.style.display = 'block';
@@ -488,11 +523,7 @@ function spinAgain() {
         el.classList.remove('selected');
     });
 
-    // Reset wheel rotation
-    const dartWheel = document.getElementById('dartWheel');
-    if (dartWheel) {
-        dartWheel.style.transform = 'rotate(0deg)';
-    }
+    // We don't reset rotation to 0 anymore, we just spin from current position
 
     // Show arrow again for next spin
     const arrowIndicator = document.getElementById('arrowIndicator');
@@ -564,30 +595,31 @@ function downloadSampleCSV() {
     }
 
     // Create sample data
-    const sampleNames = [
-        'Alice',
-        'Bob',
-        'Charlie',
-        'Diana',
-        'Eve',
-        'Frank'
+    const sampleParticipants = [
+        ['Name', 'Wish List'],
+        ['Alice', 'Kindle Paperwhite, Coffee beans'],
+        ['Bob', 'Wireless headphones, Gaming mouse'],
+        ['Charlie', 'Art supplies, Sketchbook'],
+        ['Diana', 'Yoga mat, Essential oils'],
+        ['Eve', 'Succulent plants, Ceramic pots'],
+        ['Frank', 'Gourmet chocolate, Red wine']
     ];
     
-    // Create worksheet data (single column)
-    const worksheetData = sampleNames.map(name => [name]);
-
     // Create workbook and worksheet
     const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.aoa_to_sheet(worksheetData);
+    const ws = XLSX.utils.aoa_to_sheet(sampleParticipants);
 
-    // Set column width
-    ws['!cols'] = [{ wch: 20 }];
+    // Set column widths
+    ws['!cols'] = [
+        { wch: 20 },
+        { wch: 40 }
+    ];
 
     // Add worksheet to workbook
     XLSX.utils.book_append_sheet(wb, ws, 'Participants');
 
     // Generate Excel file and download
-    XLSX.writeFile(wb, 'sample_participants.xlsx');
+    XLSX.writeFile(wb, 'sample_participants_with_wishlist.xlsx');
 }
 
 /**
@@ -736,6 +768,7 @@ function resetAllData() {
     const dartWheel = document.getElementById('dartWheel');
     if (dartWheel) {
         dartWheel.innerHTML = '';
+        currentRotation = 0;
         dartWheel.style.transform = 'rotate(0deg)';
     }
 
